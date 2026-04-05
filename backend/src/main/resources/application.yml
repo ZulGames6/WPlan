@@ -1,0 +1,26 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/poloplan?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:poloplan}
+    password: ${SPRING_DATASOURCE_PASSWORD:poloplan}
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+  main:
+    banner-mode: console
+
+jwt:
+  # Debe tener longitud >= 32 para HS256 (usamos hash en JwtService).
+  secret: ${JWT_SECRET:change-me-change-me-change-me-change-me}
+  expiration-minutes: 43200 # 30 días
+
+logging:
+  level:
+    org.springframework.security: INFO
+

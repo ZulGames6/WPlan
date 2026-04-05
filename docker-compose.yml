@@ -1,0 +1,33 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: poloplan-mysql
+    environment:
+      MYSQL_DATABASE: poloplan
+      MYSQL_USER: poloplan
+      MYSQL_PASSWORD: poloplan
+      MYSQL_ROOT_PASSWORD: poloplan_root
+    ports:
+      - "3306:3306"
+    volumes:
+      - poloplan-mysql-data:/var/lib/mysql
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: poloplan-api
+    depends_on:
+      - mysql
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/poloplan?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: poloplan
+      SPRING_DATASOURCE_PASSWORD: poloplan
+      JWT_SECRET: "cambia-esto-por-una-clave-larga-y-segura"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    ports:
+      - "8080:8080"
+
+volumes:
+  poloplan-mysql-data:
+
