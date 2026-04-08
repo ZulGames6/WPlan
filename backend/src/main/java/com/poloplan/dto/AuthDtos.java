@@ -28,8 +28,5 @@ public class AuthDtos {
     String password
   ) {}
 
-  public record AuthResponse(String token) {}
-
   public record MeResponse(Long id, String email, String name) {}
 }
-

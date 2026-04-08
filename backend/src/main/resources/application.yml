@@ -1,5 +1,11 @@
 server:
   port: 8080
+  servlet:
+    session:
+      cookie:
+        name: POLOPLAN_SESSION
+        http-only: true
+        same-site: lax
 
 spring:
   datasource:
@@ -15,12 +21,6 @@ spring:
   main:
     banner-mode: console
 
-jwt:
-  # Debe tener longitud >= 32 para HS256 (usamos hash en JwtService).
-  secret: ${JWT_SECRET:change-me-change-me-change-me-change-me}
-  expiration-minutes: 43200 # 30 días
-
 logging:
   level:
     org.springframework.security: INFO
-

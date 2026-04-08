@@ -23,7 +23,6 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/poloplan?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       SPRING_DATASOURCE_USERNAME: poloplan
       SPRING_DATASOURCE_PASSWORD: poloplan
-      JWT_SECRET: "cambia-esto-por-una-clave-larga-y-segura"
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
     ports:
       - "8080:8080"
