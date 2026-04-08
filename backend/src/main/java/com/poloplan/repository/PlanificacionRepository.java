@@ -11,9 +11,12 @@ import com.poloplan.entity.Planificacion;
 
 public interface PlanificacionRepository extends JpaRepository<Planificacion, Long> {
 
-  @Query("SELECT p FROM Planificacion p WHERE p.user.id = :userId ORDER BY p.id DESC")
+  @Query("SELECT p FROM Planificacion p WHERE p.user.id = :userId ORDER BY p.numero DESC, p.id DESC")
   List<Planificacion> listByOwner(@Param("userId") Long userId);
 
-  @Query("SELECT p FROM Planificacion p WHERE p.id = :id AND p.user.id = :userId")
-  Optional<Planificacion> findByIdAndOwner(@Param("id") Long id, @Param("userId") Long userId);
+  @Query("SELECT p FROM Planificacion p WHERE p.numero = :numero AND p.user.id = :userId")
+  Optional<Planificacion> findByNumeroAndOwner(@Param("numero") Long numero, @Param("userId") Long userId);
+
+  @Query("SELECT COALESCE(MAX(p.numero), 0) FROM Planificacion p WHERE p.user.id = :userId")
+  long maxNumeroByOwner(@Param("userId") Long userId);
 }

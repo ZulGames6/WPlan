@@ -11,9 +11,13 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 @Entity
-@Table(name = "planificacion")
+@Table(
+  name = "planificacion",
+  uniqueConstraints = {@UniqueConstraint(columnNames = {"user_id", "numero"})}
+)
 public class Planificacion {
 
   @Id
@@ -23,6 +27,12 @@ public class Planificacion {
   @ManyToOne(fetch = FetchType.LAZY, optional = false)
   @JoinColumn(name = "user_id", nullable = false)
   private AppUser user;
+
+  /**
+   * Identificador público por usuario (1..N). Puede ser null en filas antiguas si ya existían antes del cambio.
+   */
+  @Column(nullable = true)
+  private Long numero;
 
   @Column(nullable = false, length = 140)
   private String nombre;
@@ -50,6 +60,14 @@ public class Planificacion {
 
   public void setUser(AppUser user) {
     this.user = user;
+  }
+
+  public Long getNumero() {
+    return numero;
+  }
+
+  public void setNumero(Long numero) {
+    this.numero = numero;
   }
 
   public String getNombre() {

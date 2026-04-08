@@ -2,9 +2,11 @@ package com.poloplan.service;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.poloplan.dto.PlanificacionDtos.ActualizarPlanificacionRequest;
@@ -23,11 +25,13 @@ public class PlanificacionService {
     this.planificacionRepository = planificacionRepository;
   }
 
+  @Transactional
   public PlanificacionResponse crear(AppUser propietario, CrearPlanificacionRequest request) {
     validarRangoFechas(request.fechaInicio(), request.fechaFin());
 
     Planificacion p = new Planificacion();
     p.setUser(propietario);
+    p.setNumero(siguienteNumero(propietario));
     p.setNombre(request.nombre().trim());
     p.setFechaInicio(request.fechaInicio());
     p.setFechaFin(request.fechaFin());
@@ -43,20 +47,21 @@ public class PlanificacionService {
       .toList();
   }
 
-  public PlanificacionResponse obtener(AppUser propietario, Long planificacionId) {
-    Planificacion p = planificacionRepository.findByIdAndOwner(planificacionId, propietario.getId())
+  public PlanificacionResponse obtener(AppUser propietario, Long planNumero) {
+    Planificacion p = planificacionRepository.findByNumeroAndOwner(planNumero, propietario.getId())
       .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Planificación no encontrada"));
     return aRespuesta(p);
   }
 
+  @Transactional
   public PlanificacionResponse actualizar(
     AppUser propietario,
-    Long planificacionId,
+    Long planNumero,
     ActualizarPlanificacionRequest request
   ) {
     validarRangoFechas(request.fechaInicio(), request.fechaFin());
 
-    Planificacion p = planificacionRepository.findByIdAndOwner(planificacionId, propietario.getId())
+    Planificacion p = planificacionRepository.findByNumeroAndOwner(planNumero, propietario.getId())
       .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Planificación no encontrada"));
 
     p.setNombre(request.nombre().trim());
@@ -68,10 +73,17 @@ public class PlanificacionService {
     return aRespuesta(p);
   }
 
-  public void eliminar(AppUser propietario, Long planificacionId) {
-    Planificacion p = planificacionRepository.findByIdAndOwner(planificacionId, propietario.getId())
+  @Transactional
+  public void eliminar(AppUser propietario, Long planNumero) {
+    Planificacion p = planificacionRepository.findByNumeroAndOwner(planNumero, propietario.getId())
       .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Planificación no encontrada"));
-    planificacionRepository.delete(p);
+    planificacionRepository.deleteById(Objects.requireNonNull(p.getId()));
+  }
+
+  private long siguienteNumero(AppUser propietario) {
+    // Nota: para concurrencia real habría que bloquear por usuario (p. ej. tabla auxiliar o SELECT ... FOR UPDATE).
+    // Para este TFG (una instancia) suele ser suficiente.
+    return planificacionRepository.maxNumeroByOwner(propietario.getId()) + 1;
   }
 
   private static void validarRangoFechas(LocalDate inicio, LocalDate fin) {
@@ -93,7 +105,7 @@ public class PlanificacionService {
 
   private PlanificacionResponse aRespuesta(Planificacion p) {
     return new PlanificacionResponse(
-      p.getId(),
+      p.getNumero(),
       p.getNombre(),
       p.getFechaInicio(),
       p.getFechaFin(),
