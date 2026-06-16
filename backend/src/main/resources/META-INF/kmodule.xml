@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kmodule xmlns="http://www.drools.org/xsd/kmodule">
+  <kbase name="gimnasioBase" packages="rules.gimnasio">
+    <ksession name="gimnasioSession" type="stateless"/>
+  </kbase>
+  <kbase name="natacionBase" packages="rules.natacion">
+    <ksession name="natacionSession" type="stateless"/>
+  </kbase>
+</kmodule>

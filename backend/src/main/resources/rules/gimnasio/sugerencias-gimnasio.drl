@@ -1,0 +1,576 @@
+package rules.gimnasio;
+
+import com.poloplan.drools.GimnasioObjetivo;
+import com.poloplan.drools.GimnasioCandidato;
+
+/*
+ * Sugerencias de gimnasio: cada ejercicio recibe una prescripción ADAPTADA a
+ * sus propias características (patrón motor, grupo muscular, equipamiento,
+ * unilateralidad, tipo del propio ejercicio), modulada por el objetivo de la
+ * sesión, la variante DUP (Volumen / Estándar / Intensidad) y el nivel del
+ * deportista. La modulación por posición en la sesión se aplica en el
+ * servicio Java post-Drools (requiere conocer el orden tras puntuar).
+ *
+ * Salience marca el orden de aplicación:
+ *   100 — descartes
+ *    90 — puntuación
+ *    80 — prescripción base (según tipo de OBJETIVO)
+ *    60 — ajuste por TIPO del ejercicio
+ *    50 — ajuste por GRUPO muscular y EQUIPAMIENTO
+ *    40 — ajuste por UNILATERAL
+ *    30 — ajuste por VARIANTE DUP
+ *    20 — ajuste por NIVEL del deportista
+ *     5 — ajuste por INTENSIDAD subjetiva
+ *     1 — asignación de TEMPO según tipo final
+ */
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FASE 1 — DESCARTES
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Descarte: equipamiento no disponible"
+  salience 100
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, equipamiento != null )
+  eval( $o.equipamientoExcluido($c.getEquipamiento()) )
+then
+  $c.setExcluido(true);
+  $c.anadirMotivo("Equipamiento " + $c.getEquipamiento() + " no disponible");
+end
+
+rule "Descarte: grupo fuera del objetivo"
+  salience 100
+  no-loop true
+when
+  $o : GimnasioObjetivo( grupos.isEmpty() == false )
+  $c : GimnasioCandidato( excluido == false, grupoMuscular != null )
+  eval( !$o.tieneGrupo($c.getGrupoMuscular()) )
+then
+  $c.setExcluido(true);
+  $c.anadirMotivo("Grupo " + $c.getGrupoMuscular() + " fuera del objetivo");
+end
+
+rule "Descarte: tipo del ejercicio incompatible con sesion suave"
+  salience 100
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo in ("MOVILIDAD", "ACTIVACION") )
+  $c : GimnasioCandidato( excluido == false, tipo in ("FUERZA", "POTENCIA") )
+then
+  $c.setExcluido(true);
+  $c.anadirMotivo("Ejercicio de " + $c.getTipo() + " no encaja con sesion de " + $o.getTipo());
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FASE 2 — PUNTUACION
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Puntuar: cubre grupo objetivo"
+  salience 90
+  no-loop true
+when
+  $o : GimnasioObjetivo( grupos.isEmpty() == false )
+  $c : GimnasioCandidato( excluido == false, grupoMuscular != null )
+  eval( $o.tieneGrupo($c.getGrupoMuscular()) )
+then
+  $c.sumarPuntos(22.0);
+  $c.anadirMotivo("Cubre " + $c.getGrupoMuscular());
+end
+
+rule "Puntuar: patron compuesto en fase PRINCIPAL"
+  salience 90
+  no-loop true
+when
+  $o : GimnasioObjetivo( fase == "PRINCIPAL" )
+  $c : GimnasioCandidato(
+        excluido == false,
+        patron in ("EMPUJE_HORIZONTAL", "EMPUJE_VERTICAL",
+                   "TRACCION_HORIZONTAL", "TRACCION_VERTICAL",
+                   "BISAGRA", "SENTADILLA", "ZANCADA") )
+then
+  $c.sumarPuntos(12.0);
+  $c.anadirMotivo("Movimiento compuesto, ideal en bloque principal");
+end
+
+rule "Puntuar: aislamiento en fase AUXILIAR"
+  salience 90
+  no-loop true
+when
+  $o : GimnasioObjetivo( fase == "AUXILIAR" )
+  $c : GimnasioCandidato( excluido == false,
+        patron in ("ESTABILIDAD", "ROTACION", "GENERAL", "CORE") )
+then
+  $c.sumarPuntos(9.0);
+  $c.anadirMotivo("Aislamiento, encaja en bloque auxiliar");
+end
+
+rule "Puntuar: peso corporal en ACTIVACION o RECUPERACION"
+  salience 90
+  no-loop true
+when
+  $o : GimnasioObjetivo( fase in ("ACTIVACION", "RECUPERACION") )
+  $c : GimnasioCandidato( excluido == false,
+        equipamiento in ("PESO_CORPORAL", "BANDAS") )
+then
+  $c.sumarPuntos(8.0);
+  $c.anadirMotivo("Ejercicio ligero apto para activacion/recuperacion");
+end
+
+rule "Puntuar: tipo del ejercicio coincide con tipo del objetivo"
+  salience 90
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo != null )
+  $c : GimnasioCandidato( excluido == false, tipo != null )
+  eval( $c.getTipo().equals($o.getTipo()) )
+then
+  $c.sumarPuntos(6.0);
+  $c.anadirMotivo("Tipo del ejercicio alineado con el objetivo");
+end
+
+rule "Puntuar: unilateral suma"
+  salience 90
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, unilateral == true )
+then
+  $c.sumarPuntos(2.5);
+  $c.anadirMotivo("Unilateral");
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FASE 3 — PRESCRIPCION BASE SEGUN OBJETIVO + VARIANTE DUP
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Base FUERZA"
+  salience 80
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo == "FUERZA" )
+  $c : GimnasioCandidato( excluido == false, series == null )
+then
+  int v = $o.getVariante();
+  int r = $c.getRand();
+  if (v == 0)       { $c.setSeries(5); $c.setRepeticiones(5 + r % 2); $c.setPorcRm(78); $c.setRir(2); $c.setDescansoSeg(180); }
+  else if (v == 1)  { $c.setSeries(4); $c.setRepeticiones(4);          $c.setPorcRm(86); $c.setRir(1); $c.setDescansoSeg(210); }
+  else              { $c.setSeries(3); $c.setRepeticiones(2 + r % 2); $c.setPorcRm(91); $c.setRir(1); $c.setDescansoSeg(270); }
+  $c.anadirMotivo("Base FUERZA (v" + v + ")");
+end
+
+rule "Base HIPERTROFIA"
+  salience 80
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo == "HIPERTROFIA" )
+  $c : GimnasioCandidato( excluido == false, series == null )
+then
+  int v = $o.getVariante();
+  int r = $c.getRand();
+  if (v == 0)       { $c.setSeries(4); $c.setRepeticiones(12 + r % 3); $c.setPorcRm(66); $c.setRir(2); $c.setDescansoSeg(70); }
+  else if (v == 1)  { $c.setSeries(4); $c.setRepeticiones(9 + r % 3);  $c.setPorcRm(74); $c.setRir(2); $c.setDescansoSeg(90); }
+  else              { $c.setSeries(3); $c.setRepeticiones(6 + r % 2);  $c.setPorcRm(82); $c.setRir(1); $c.setDescansoSeg(110); }
+  $c.anadirMotivo("Base HIPERTROFIA (v" + v + ")");
+end
+
+rule "Base POTENCIA"
+  salience 80
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo == "POTENCIA" )
+  $c : GimnasioCandidato( excluido == false, series == null )
+then
+  int v = $o.getVariante();
+  if (v == 0)       { $c.setSeries(6); $c.setRepeticiones(4); $c.setPorcRm(52); $c.setRir(3); $c.setDescansoSeg(150); }
+  else if (v == 1)  { $c.setSeries(5); $c.setRepeticiones(3); $c.setPorcRm(72); $c.setRir(2); $c.setDescansoSeg(180); }
+  else              { $c.setSeries(4); $c.setRepeticiones(2); $c.setPorcRm(85); $c.setRir(1); $c.setDescansoSeg(240); }
+  $c.anadirMotivo("Base POTENCIA (v" + v + ")");
+end
+
+rule "Base RESISTENCIA"
+  salience 80
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo == "RESISTENCIA" )
+  $c : GimnasioCandidato( excluido == false, series == null )
+then
+  int v = $o.getVariante();
+  int r = $c.getRand();
+  if (v == 0)       { $c.setSeries(3); $c.setRepeticiones(20 + (r % 4)); $c.setPorcRm(48); $c.setRir(3); $c.setDescansoSeg(40); }
+  else if (v == 1)  { $c.setSeries(3); $c.setRepeticiones(15 + (r % 3)); $c.setPorcRm(56); $c.setRir(2); $c.setDescansoSeg(55); }
+  else              { $c.setSeries(4); $c.setRepeticiones(12 + (r % 2)); $c.setPorcRm(62); $c.setRir(2); $c.setDescansoSeg(75); }
+  $c.anadirMotivo("Base RESISTENCIA (v" + v + ")");
+end
+
+rule "Base MOVILIDAD o ACTIVACION"
+  salience 80
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo in ("MOVILIDAD", "ACTIVACION") )
+  $c : GimnasioCandidato( excluido == false, series == null )
+then
+  int r = $c.getRand();
+  $c.setSeries(2 + (r % 2));
+  $c.setRepeticiones(10 + (r % 6));
+  $c.setPorcRm(35);
+  $c.setRir(4);
+  $c.setDescansoSeg(30);
+  $c.anadirMotivo("Base MOVILIDAD/ACTIVACION");
+end
+
+rule "Base generica sin tipo objetivo"
+  salience 80
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo == null )
+  $c : GimnasioCandidato( excluido == false, series == null )
+then
+  int r = $c.getRand();
+  $c.setSeries(3 + (r % 2));
+  $c.setRepeticiones(8 + (r % 5));
+  $c.setPorcRm(70);
+  $c.setRir(2);
+  $c.setDescansoSeg(80);
+  $c.anadirMotivo("Base generica");
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FASE 4 — AJUSTE POR TIPO DEL EJERCICIO
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Ajuste tipo ejercicio: CORE en sesion no-CORE"
+  salience 60
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo not in ("RESISTENCIA", "MOVILIDAD", "ACTIVACION", "CORE") )
+  $c : GimnasioCandidato( excluido == false, tipo == "CORE", series != null )
+then
+  int r = $c.getRand();
+  $c.setSeries(3);
+  $c.setRepeticiones(12 + (r % 6));
+  $c.setPorcRm(null);
+  $c.setRir(2);
+  $c.setDescansoSeg(45);
+  $c.anadirMotivo("Core: 3x12-18, control, descanso corto");
+end
+
+rule "Ajuste tipo ejercicio: MOVILIDAD aislada"
+  salience 60
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, tipo == "MOVILIDAD", series != null )
+then
+  int r = $c.getRand();
+  $c.setSeries(2);
+  $c.setRepeticiones(8 + (r % 5));
+  $c.setPorcRm(null);
+  $c.setRir(4);
+  $c.setDescansoSeg(30);
+  $c.anadirMotivo("Movilidad: ROM completo, sin carga maxima");
+end
+
+rule "Ajuste tipo ejercicio: POTENCIA fuera de sesion potencia"
+  salience 60
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo != "POTENCIA" )
+  $c : GimnasioCandidato( excluido == false, tipo == "POTENCIA", series != null )
+then
+  $c.setRepeticiones(Math.max(3, $c.getRepeticiones() - 4));
+  $c.setDescansoSeg($c.getDescansoSeg() + 60);
+  $c.anadirMotivo("Ejercicio potencia: menos reps + descanso largo");
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FASE 5 — AJUSTE POR GRUPO MUSCULAR Y EQUIPAMIENTO
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Ajuste grupo: pequenos"
+  salience 50
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false,
+        grupoMuscular in ("BICEPS", "TRICEPS", "ANTEBRAZO"),
+        series != null )
+then
+  int r = $c.getRand();
+  $c.setRepeticiones(Math.min(20, $c.getRepeticiones() + 2 + (r % 3)));
+  if ($c.getPorcRm() != null) {
+    $c.setPorcRm(Math.max(30, $c.getPorcRm() - 5));
+  }
+  $c.setDescansoSeg(Math.max(40, $c.getDescansoSeg() - 20));
+  $c.anadirMotivo("Grupo pequeno: +reps -descanso");
+end
+
+rule "Ajuste grupo: grandes"
+  salience 50
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false,
+        grupoMuscular in ("ESPALDA", "CUADRICEPS", "GLUTEO", "PECTORAL"),
+        tipo not in ("CORE", "MOVILIDAD"),
+        series != null )
+then
+  if ($c.getPorcRm() != null) {
+    $c.setPorcRm(Math.min(95, $c.getPorcRm() + 3));
+  }
+  $c.setDescansoSeg($c.getDescansoSeg() + 20);
+  $c.anadirMotivo("Grupo grande: +%RM +descanso");
+end
+
+rule "Ajuste equipo: peso corporal o bandas"
+  salience 50
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false,
+        equipamiento in ("PESO_CORPORAL", "BANDAS"),
+        series != null )
+then
+  int r = $c.getRand();
+  $c.setRepeticiones(Math.min(25, $c.getRepeticiones() + 4 + (r % 4)));
+  $c.setPorcRm(null);
+  if ($c.getRir() != null) {
+    $c.setRir(Math.max(1, $c.getRir() - 1));
+  }
+  $c.setDescansoSeg(Math.max(30, $c.getDescansoSeg() - 30));
+  $c.anadirMotivo("Sin carga externa: +reps -%RM -descanso");
+end
+
+rule "Ajuste equipo: kettlebell"
+  salience 50
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, equipamiento == "KETTLEBELL", series != null )
+then
+  int r = $c.getRand();
+  $c.setRepeticiones(10 + (r % 6));
+  $c.setSeries(Math.min(5, Math.max(3, $c.getSeries())));
+  $c.setDescansoSeg(60 + (r % 4) * 15);
+  $c.anadirMotivo("Kettlebell: ritmo continuo, descanso medio");
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FASE 6 — AJUSTE POR UNILATERAL
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Ajuste unilateral"
+  salience 40
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, unilateral == true, series != null )
+then
+  int reps = $c.getRepeticiones();
+  $c.setRepeticiones(Math.max(4, (int) Math.round(reps * 0.7)));
+  $c.setDescansoSeg($c.getDescansoSeg() + 15);
+  $c.anadirMotivo("Unilateral: reps/lado -30%, +15s desc");
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FASE 7 — AJUSTE POR VARIANTE DUP (modulacion fina)
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Variante DUP volumen"
+  salience 30
+  no-loop true
+when
+  $o : GimnasioObjetivo( variante == 0 )
+  $c : GimnasioCandidato( excluido == false, series != null, tipo != "MOVILIDAD" )
+then
+  $c.setSeries(Math.min(6, $c.getSeries() + 1));
+  $c.anadirMotivo("DUP volumen: +1 serie");
+end
+
+rule "Variante DUP intensidad"
+  salience 30
+  no-loop true
+when
+  $o : GimnasioObjetivo( variante == 2 )
+  $c : GimnasioCandidato( excluido == false, series != null,
+        tipo not in ("MOVILIDAD", "RESISTENCIA"),
+        porcRm != null )
+then
+  $c.setPorcRm(Math.min(95, $c.getPorcRm() + 3));
+  if ($c.getRir() != null) {
+    $c.setRir(Math.max(0, $c.getRir() - 1));
+  }
+  $c.anadirMotivo("DUP intensidad: +%RM, -RIR");
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FASE 8 — AJUSTE POR NIVEL DEL DEPORTISTA
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Nivel INICIACION"
+  salience 20
+  no-loop true
+when
+  $o : GimnasioObjetivo( nivel == "INICIACION" )
+  $c : GimnasioCandidato( excluido == false, series != null )
+then
+  $c.setSeries(Math.max(2, $c.getSeries() - 1));
+  if ($c.getPorcRm() != null) {
+    $c.setPorcRm(Math.max(30, $c.getPorcRm() - 8));
+  }
+  if ($c.getRir() != null) {
+    $c.setRir(Math.min(5, $c.getRir() + 1));
+  }
+  $c.anadirMotivo("Iniciacion: -1 serie, -%RM, +RIR");
+end
+
+rule "Nivel AVANZADO"
+  salience 20
+  no-loop true
+when
+  $o : GimnasioObjetivo( nivel == "AVANZADO" )
+  $c : GimnasioCandidato( excluido == false, series != null,
+        tipo not in ("MOVILIDAD", "ACTIVACION") )
+then
+  $c.setSeries(Math.min(6, $c.getSeries() + 1));
+  if ($c.getRir() != null) {
+    $c.setRir(Math.max(0, $c.getRir() - 1));
+  }
+  $c.anadirMotivo("Avanzado: +1 serie, RIR mas cerca del fallo");
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FASE 9 — INTENSIDAD SUBJETIVA
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Intensidad subjetiva ALTA"
+  salience 5
+  no-loop true
+when
+  $o : GimnasioObjetivo( intensidad == "ALTA" )
+  $c : GimnasioCandidato( excluido == false, series != null )
+then
+  $c.setDescansoSeg(Math.max(30, $c.getDescansoSeg() - 20));
+  if ($c.getRir() != null) {
+    $c.setRir(Math.max(0, $c.getRir() - 1));
+  }
+  $c.anadirMotivo("Sesion densa: -desc, -RIR");
+end
+
+rule "Intensidad subjetiva BAJA"
+  salience 5
+  no-loop true
+when
+  $o : GimnasioObjetivo( intensidad == "BAJA" )
+  $c : GimnasioCandidato( excluido == false, series != null )
+then
+  $c.setDescansoSeg($c.getDescansoSeg() + 30);
+  if ($c.getRir() != null) {
+    $c.setRir(Math.min(5, $c.getRir() + 1));
+  }
+  $c.anadirMotivo("Sesion suave: +desc, +RIR");
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FASE 10 — TEMPO (segun tipo del ejercicio; si null, segun objetivo)
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Tempo: explosivo por ejercicio potencia"
+  salience 1
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, tempo == null, tipo == "POTENCIA" )
+then
+  $c.setTempo("2-0-X");
+  $c.anadirMotivo("Tempo 2-0-X: concentrica explosiva");
+end
+
+rule "Tempo: explosivo por objetivo potencia"
+  salience 1
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo == "POTENCIA" )
+  $c : GimnasioCandidato( excluido == false, tempo == null, tipo != "POTENCIA", series != null )
+then
+  $c.setTempo("2-0-X");
+  $c.anadirMotivo("Tempo 2-0-X: concentrica explosiva (sesion potencia)");
+end
+
+rule "Tempo: hipertrofia por ejercicio"
+  salience 1
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, tempo == null, tipo == "HIPERTROFIA" )
+then
+  $c.setTempo("3-1-1");
+  $c.anadirMotivo("Tempo 3-1-1: TUT alto, excentrica controlada");
+end
+
+rule "Tempo: hipertrofia por objetivo"
+  salience 1
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo == "HIPERTROFIA" )
+  $c : GimnasioCandidato( excluido == false, tempo == null, tipo != "HIPERTROFIA", series != null )
+then
+  $c.setTempo("3-1-1");
+  $c.anadirMotivo("Tempo 3-1-1: TUT alto (sesion hipertrofia)");
+end
+
+rule "Tempo: fuerza por ejercicio"
+  salience 1
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, tempo == null, tipo == "FUERZA" )
+then
+  $c.setTempo("2-1-1");
+  $c.anadirMotivo("Tempo 2-1-1: estable, concentrica firme");
+end
+
+rule "Tempo: fuerza por objetivo"
+  salience 1
+  no-loop true
+when
+  $o : GimnasioObjetivo( tipo == "FUERZA" )
+  $c : GimnasioCandidato( excluido == false, tempo == null, tipo != "FUERZA", series != null )
+then
+  $c.setTempo("2-1-1");
+  $c.anadirMotivo("Tempo 2-1-1: estable (sesion fuerza)");
+end
+
+rule "Tempo: resistencia por ejercicio"
+  salience 1
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, tempo == null, tipo == "RESISTENCIA" )
+then
+  $c.setTempo("2-0-2");
+  $c.anadirMotivo("Tempo 2-0-2: ritmo continuo");
+end
+
+rule "Tempo: movilidad core activacion"
+  salience 1
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, tempo == null,
+        tipo in ("MOVILIDAD", "CORE", "ACTIVACION") )
+then
+  $c.setTempo("3-2-1");
+  $c.anadirMotivo("Tempo 3-2-1: control y conciencia");
+end
+
+rule "Tempo: por defecto"
+  salience 0
+  no-loop true
+when
+  $o : GimnasioObjetivo()
+  $c : GimnasioCandidato( excluido == false, tempo == null, series != null )
+then
+  $c.setTempo("2-1-1");
+end

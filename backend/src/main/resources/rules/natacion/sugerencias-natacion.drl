@@ -1,0 +1,641 @@
+package rules.natacion;
+
+import com.poloplan.drools.NatacionObjetivo;
+import com.poloplan.drools.NatacionBloqueGenerado;
+
+/*
+ * Sugerencias de natación: cada bloque (calentamiento, técnica, piernas,
+ * material, principal y vuelta a la calma) recibe parámetros adaptados al
+ * objetivo fisiológico, al volumen objetivo, al nivel del nadador y a una
+ * variante estructural elegida aleatoriamente por el servicio para que dos
+ * sesiones consecutivas con el mismo objetivo NO sean idénticas.
+ *
+ * Escala AE de intensidad percibida:
+ *   AE1 = muy suave (recuperación, técnica)   → factor carga: 1
+ *   AE2 = aeróbico moderado (base aeróbica)   → factor carga: 2
+ *   AE3 = umbral / esfuerzo sostenido         → factor carga: 3
+ *   AE4 = anaeróbico láctico (alta intensidad)→ factor carga: 5
+ *   AE5 = máximo, sprints (velocidad)         → factor carga: 8
+ */
+
+// ══════════════════════════════════════════════════════════════════════════
+//  BLOQUE 1 — CALENTAMIENTO
+// ══════════════════════════════════════════════════════════════════════════
+//  Volumen ~15-20% del total, ajustado por nivel y variante.
+
+rule "Bloque: Calentamiento"
+  no-loop true
+when
+  $o : NatacionObjetivo()
+  $b : NatacionBloqueGenerado(tipo == "CALENTAMIENTO")
+then
+  int vol = $o.getVolumenMetros() != null ? $o.getVolumenMetros() : 2000;
+  int r = $o.getRand();
+  String nivel = $o.getNivel();
+  int v = $o.getVariante();
+
+  // Porcentaje base 15-22% del total según nivel
+  int pct = "INICIACION".equals(nivel) ? 22 : ("AVANZADO".equals(nivel) ? 15 : 18);
+  int warmup = (vol * pct) / 100;
+  // Redondeo a múltiplos de 50 para que el bloque sea nadable
+  warmup = ((warmup + 24) / 50) * 50;
+  // Mínimo 300, máximo 800 metros
+  warmup = Math.max(300, Math.min(800, warmup));
+
+  // Estructura por variante:
+  //   v0 = 1 serie continua
+  //   v1 = 2 series con técnica progresiva
+  //   v2 = 3 mini-bloques (libre/espalda/estilos)
+  int series;
+  int metros;
+  if (v == 0) {
+    series = 1;
+    metros = warmup;
+  } else if (v == 1) {
+    series = 2;
+    metros = warmup / 2;
+  } else {
+    series = 3;
+    metros = warmup / 3;
+    // Redondear el bloque pequeño a múltiplos de 25
+    metros = ((metros + 12) / 25) * 25;
+  }
+
+  String desc;
+  if (v == 0) {
+    desc = "Nado libre progresivo. Primeros 100m muy suaves, ultimos 100m algo mas vivos. Paradas para movilizar hombros.";
+  } else if (v == 1) {
+    desc = "Calentamiento en dos tramos: primero libre suelto, segundo con tecnica (entrada de mano larga, rotacion de hombro).";
+  } else {
+    desc = "Tres mini-bloques: libre + espalda + estilos cortos. Activacion completa de la musculatura del tren superior.";
+  }
+  // Pequeña variación de descanso por r
+  int descanso = v == 0 ? 0 : (10 + (r % 4) * 5);
+
+  $b.setActivo(true);
+  $b.setOrden(1);
+  $b.setIntensidadAE("AE1");
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setDescripcion(desc);
+  $b.setMotivo("Calentamiento (AE1) · " + series + "x" + metros + "m · " + pct + "% del volumen total");
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  BLOQUE 2 — TECNICA
+// ══════════════════════════════════════════════════════════════════════════
+//  Series cortas o medias según objetivo. Variante elige formato concreto.
+
+rule "Bloque: Tecnica"
+  no-loop true
+when
+  $o : NatacionObjetivo()
+  $b : NatacionBloqueGenerado(tipo == "TECNICA")
+then
+  String obj = $o.getObjetivo() != null ? $o.getObjetivo() : "";
+  boolean esVelAnae = "VELOCIDAD".equals(obj) || "POTENCIA_ANAEROBICA_LACTICA".equals(obj);
+  int v = $o.getVariante();
+  int r = $o.getRand();
+  String estilo = $o.getEstiloPreferente() != null ? $o.getEstiloPreferente() : "LIBRE";
+
+  // Formato según variante y objetivo:
+  //   v0 = series clasicas
+  //   v1 = piramide corta (50-75-100-75-50 metros)
+  //   v2 = repetido con cambio de estilo cada serie
+  int series;
+  int metros;
+  int descanso;
+  if (esVelAnae) {
+    if (v == 0)      { series = 6; metros = 50;  descanso = 20; }
+    else if (v == 1) { series = 5; metros = 50;  descanso = 25; }
+    else             { series = 8; metros = 25;  descanso = 15; }
+  } else {
+    if (v == 0)      { series = 4; metros = 100; descanso = 15; }
+    else if (v == 1) { series = 6; metros = 75;  descanso = 12; }
+    else             { series = 8; metros = 50;  descanso = 10 + (r % 3) * 5; }
+  }
+
+  String desc;
+  if (v == 0) {
+    desc = "Tecnica clasica en " + estilo + ": entrada de mano, rotacion de hombro, posicion hidrodinamica. Correccion en cada pared.";
+  } else if (v == 1) {
+    desc = "Piramide tecnica con foco en " + estilo + ": cada serie sube en exigencia tecnica. Calidad sobre cantidad.";
+  } else {
+    desc = "Alternancia de estilos cada serie (" + estilo + " principal). Mejora la tecnica global y previene asimetrias.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(2);
+  $b.setIntensidadAE("AE2");
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setDescripcion(desc);
+  $b.setMotivo("Tecnica (AE2) · " + series + "x" + metros + "m / " + descanso + "s desc · variante " + v);
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  BLOQUE 3 — PIERNAS
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Bloque: Piernas"
+  no-loop true
+when
+  $o : NatacionObjetivo()
+  $b : NatacionBloqueGenerado(tipo == "PIERNAS")
+then
+  String obj = $o.getObjetivo() != null ? $o.getObjetivo() : "";
+  boolean esVelocidad = "VELOCIDAD".equals(obj);
+  boolean esAerobico = "CAPACIDAD_AEROBICA".equals(obj) || "UMBRAL_AEROBICO".equals(obj);
+  int v = $o.getVariante();
+  int r = $o.getRand();
+
+  int series;
+  int metros;
+  int descanso;
+  String material;
+  String ae;
+
+  if (esVelocidad) {
+    // Piernas explosivas, series cortas
+    if (v == 0)      { series = 8; metros = 25; descanso = 30; }
+    else if (v == 1) { series = 6; metros = 25; descanso = 25; }
+    else             { series = 10; metros = 25; descanso = 35; }
+    material = "TABLA";
+    ae = "AE3";
+  } else if (esAerobico) {
+    // Piernas aerobicas largas
+    if (v == 0)      { series = 4; metros = 100; descanso = 20; }
+    else if (v == 1) { series = 3; metros = 150; descanso = 25; }
+    else             { series = 6; metros = 75;  descanso = 15; }
+    material = "TABLA";
+    ae = "AE2";
+  } else {
+    // Piernas standard
+    if (v == 0)      { series = 4; metros = 50; descanso = 15; }
+    else if (v == 1) { series = 6; metros = 50; descanso = 15; }
+    else             { series = 5; metros = 50 + (r % 3) * 25; descanso = 20; }
+    material = "TABLA";
+    ae = "AE2";
+  }
+
+  String desc;
+  if (esVelocidad) {
+    desc = "Patada explosiva con tabla. Tobillo flexible, cadera baja, ritmo maximo. Recuperacion completa entre series.";
+  } else if (esAerobico) {
+    desc = "Patada con tabla a ritmo aerobico constante. Cadencia regular, respiracion lateral controlada.";
+  } else {
+    desc = "Patada con tabla. Tobillo flexible, cadera baja. Foco en la cadencia y la propulsion eficiente.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(3);
+  $b.setIntensidadAE(ae);
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setMaterial(material);
+  $b.setDescripcion(desc);
+  $b.setMotivo("Piernas (" + ae + ") · " + series + "x" + metros + "m / " + descanso + "s desc · variante " + v);
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  BLOQUE 4 — MATERIAL  (no aplica en VELOCIDAD)
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Bloque: Material"
+  no-loop true
+when
+  $o : NatacionObjetivo(objetivo != null, objetivo != "VELOCIDAD")
+  $b : NatacionBloqueGenerado(tipo == "MATERIAL")
+then
+  String obj = $o.getObjetivo();
+  boolean esAnaerobico = obj.contains("ANAEROBICO");
+  int v = $o.getVariante();
+  int r = $o.getRand();
+
+  int series;
+  int metros;
+  int descanso;
+  String material;
+  String ae;
+
+  // Variante elige el tipo de material y el esquema de series
+  if (v == 0) {
+    material = "PALAS + PULL-BUOY";
+    if (esAnaerobico) { series = 4; metros = 100; descanso = 25; ae = "AE3"; }
+    else              { series = 4; metros = 150; descanso = 20; ae = "AE2"; }
+  } else if (v == 1) {
+    material = "PALAS";
+    if (esAnaerobico) { series = 6; metros = 75;  descanso = 25; ae = "AE3"; }
+    else              { series = 5; metros = 100; descanso = 20; ae = "AE2"; }
+  } else {
+    material = "PULL-BUOY + TUBO";
+    if (esAnaerobico) { series = 3; metros = 150; descanso = 30; ae = "AE3"; }
+    else              { series = 3; metros = 200 + (r % 2) * 50; descanso = 25; ae = "AE2"; }
+  }
+
+  String desc;
+  if (v == 0) {
+    desc = material + ". Cuerpo alineado, traccion larga, sin patada. Foco en la fase de empuje y la entrada de la mano.";
+  } else if (v == 1) {
+    desc = material + ". Series mas cortas pero con cadencia alta. Las palas aumentan la fuerza especifica de brazada.";
+  } else {
+    desc = material + ". Series largas con cuerpo bloqueado: trabajo de eficiencia de brazada y resistencia muscular.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(4);
+  $b.setIntensidadAE(ae);
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setMaterial(material);
+  $b.setDescripcion(desc);
+  $b.setMotivo("Material (" + ae + ") · " + series + "x" + metros + "m con " + material);
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  BLOQUE 5 — PRINCIPAL  (3 sub-variantes por cada objetivo)
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Principal: VELOCIDAD"
+  no-loop true
+when
+  $o : NatacionObjetivo(objetivo == "VELOCIDAD")
+  $b : NatacionBloqueGenerado(tipo == "PRINCIPAL")
+then
+  int vol = $o.getVolumenMetros() != null ? $o.getVolumenMetros() : 2000;
+  int v = $o.getVariante();
+  int r = $o.getRand();
+  int volPrincipal = (vol * 35) / 100;
+
+  int series;
+  int metros;
+  int descanso;
+  String desc;
+
+  if (v == 0) {
+    // Sprint puro: muchas series de 25m con descanso largo
+    metros = 25;
+    series = Math.max(6, Math.min(14, volPrincipal / metros));
+    descanso = 45;
+    desc = "Sprints 25m a maxima intensidad. Salida explosiva, frecuencia maxima de brazada desde el primer metro. Recuperacion completa entre series.";
+  } else if (v == 1) {
+    // Series 50m con recuperacion incompleta
+    metros = 50;
+    series = Math.max(5, Math.min(10, volPrincipal / metros));
+    descanso = 60;
+    desc = "Sprints 50m al 95%. Mantener cadencia maxima los 50m completos. La fatiga aparece: ahi se entrena.";
+  } else {
+    // Combinacion 25+50 alternados
+    metros = 25 + (r % 2) * 25;
+    series = Math.max(8, Math.min(16, volPrincipal / 40));
+    descanso = 40;
+    desc = "Alternancia 25-50m a maxima intensidad. Trabajo de velocidad pura con aceleraciones y mantenimiento.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(5);
+  $b.setIntensidadAE("AE5");
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setDescripcion(desc);
+  $b.setMotivo("VELOCIDAD (AE5) · " + series + "x" + metros + "m / " + descanso + "s · variante " + v);
+end
+
+rule "Principal: POTENCIA_ANAEROBICA_LACTICA"
+  no-loop true
+when
+  $o : NatacionObjetivo(objetivo == "POTENCIA_ANAEROBICA_LACTICA")
+  $b : NatacionBloqueGenerado(tipo == "PRINCIPAL")
+then
+  int vol = $o.getVolumenMetros() != null ? $o.getVolumenMetros() : 2000;
+  int v = $o.getVariante();
+  int volPrincipal = (vol * 40) / 100;
+
+  int series;
+  int metros;
+  int descanso;
+  String desc;
+
+  if (v == 0) {
+    metros = 50;
+    series = Math.max(6, Math.min(10, volPrincipal / metros));
+    descanso = 60;
+    desc = "Series 50m al 95%. Recuperacion larga para mantener la calidad del esfuerzo. No degradar el ritmo en las ultimas series.";
+  } else if (v == 1) {
+    // Piramide 50-75-100-75-50
+    metros = 75;
+    series = 5;
+    descanso = 60;
+    desc = "Piramide 50-75-100-75-50m al 95%. El centro es el pico, los extremos son aceleracion y descarga. Calidad maxima.";
+  } else {
+    metros = 100;
+    series = Math.max(4, Math.min(7, volPrincipal / metros));
+    descanso = 75;
+    desc = "Series 100m al 92-95%. Distancia mas larga, requiere gestion de la fatiga. Los ultimos 25m deben mantener el ritmo.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(5);
+  $b.setIntensidadAE("AE4");
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setDescripcion(desc);
+  $b.setMotivo("POTENCIA ANAEROBICA (AE4) · " + series + "x" + metros + "m / " + descanso + "s · variante " + v);
+end
+
+rule "Principal: CAPACIDAD_ANAEROBICA_LACTICA"
+  no-loop true
+when
+  $o : NatacionObjetivo(objetivo == "CAPACIDAD_ANAEROBICA_LACTICA")
+  $b : NatacionBloqueGenerado(tipo == "PRINCIPAL")
+then
+  int vol = $o.getVolumenMetros() != null ? $o.getVolumenMetros() : 2500;
+  int v = $o.getVariante();
+  int volPrincipal = (vol * 45) / 100;
+
+  int series;
+  int metros;
+  int descanso;
+  String desc;
+
+  if (v == 0) {
+    metros = 100;
+    series = Math.max(4, Math.min(8, volPrincipal / metros));
+    descanso = 40;
+    desc = "Series 100m al 90%. Ritmo de competicion sostenido. Tolerancia al lactato. Mantener el ritmo entre series.";
+  } else if (v == 1) {
+    metros = 150;
+    series = Math.max(3, Math.min(6, volPrincipal / metros));
+    descanso = 45;
+    desc = "Series 150m con cambio de ritmo: primero 100m fuerte, ultimos 50m maximo. Tolerancia con cambio de marcha.";
+  } else {
+    // Alternancia 100+50 fast
+    metros = 100;
+    series = Math.max(4, Math.min(7, volPrincipal / 150));
+    descanso = 50;
+    desc = "Alternancia 100m al 90% + 50m al 95% sin descanso. Trabajo lactico con ritmo de carrera y final mas exigente.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(5);
+  $b.setIntensidadAE("AE4");
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setDescripcion(desc);
+  $b.setMotivo("CAPACIDAD ANAEROBICA (AE4) · " + series + "x" + metros + "m / " + descanso + "s · variante " + v);
+end
+
+rule "Principal: UMBRAL_ANAEROBICO_LACTICO"
+  no-loop true
+when
+  $o : NatacionObjetivo(objetivo == "UMBRAL_ANAEROBICO_LACTICO")
+  $b : NatacionBloqueGenerado(tipo == "PRINCIPAL")
+then
+  int vol = $o.getVolumenMetros() != null ? $o.getVolumenMetros() : 3000;
+  int v = $o.getVariante();
+  int volPrincipal = (vol * 50) / 100;
+
+  int series;
+  int metros;
+  int descanso;
+  String desc;
+
+  if (v == 0) {
+    metros = 100;
+    series = Math.max(8, Math.min(15, volPrincipal / metros));
+    descanso = 20;
+    desc = "Series 100m al 85% con descanso corto. Esfuerzo en umbral, tolerancia al lactato sostenida.";
+  } else if (v == 1) {
+    metros = 200;
+    series = Math.max(4, Math.min(8, volPrincipal / metros));
+    descanso = 25;
+    desc = "Series 200m al 85% mas largas. Mayor demanda de gestion del ritmo. Los segundos 100m no deben caer.";
+  } else {
+    // Piramide 100-200-300-200-100
+    metros = 200;
+    series = 5;
+    descanso = 25;
+    desc = "Piramide 100-200-300-200-100 en umbral. La distancia central exige mantener el ritmo del umbral incluso con fatiga.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(5);
+  $b.setIntensidadAE("AE3");
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setDescripcion(desc);
+  $b.setMotivo("UMBRAL ANAEROBICO (AE3) · " + series + "x" + metros + "m / " + descanso + "s · variante " + v);
+end
+
+rule "Principal: POTENCIA_AEROBICA"
+  no-loop true
+when
+  $o : NatacionObjetivo(objetivo == "POTENCIA_AEROBICA")
+  $b : NatacionBloqueGenerado(tipo == "PRINCIPAL")
+then
+  int vol = $o.getVolumenMetros() != null ? $o.getVolumenMetros() : 3000;
+  int v = $o.getVariante();
+  int volPrincipal = (vol * 50) / 100;
+
+  int series;
+  int metros;
+  int descanso;
+  String desc;
+
+  if (v == 0) {
+    metros = 200;
+    series = Math.max(3, Math.min(8, volPrincipal / metros));
+    descanso = 30;
+    desc = "Series 200m al 80% (VO2max). Progresion dentro de cada serie: ultimos 50m mas vivos. Eficiencia de brazada.";
+  } else if (v == 1) {
+    metros = 300;
+    series = Math.max(2, Math.min(5, volPrincipal / metros));
+    descanso = 40;
+    desc = "Series 300m al 80%. Distancia larga sostenida en VO2max. Cadencia regular, control de la respiracion.";
+  } else {
+    // Doble bloque: 4x100 + 3x200
+    metros = 150;
+    series = Math.max(6, Math.min(10, volPrincipal / metros));
+    descanso = 25;
+    desc = "Series 150m al 80% en formato corto. Cadencia alta, recuperacion incompleta. Ritmo VO2max sostenible.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(5);
+  $b.setIntensidadAE("AE3");
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setDescripcion(desc);
+  $b.setMotivo("POTENCIA AEROBICA (AE3) · " + series + "x" + metros + "m / " + descanso + "s · variante " + v);
+end
+
+rule "Principal: CAPACIDAD_AEROBICA"
+  no-loop true
+when
+  $o : NatacionObjetivo(objetivo == "CAPACIDAD_AEROBICA")
+  $b : NatacionBloqueGenerado(tipo == "PRINCIPAL")
+then
+  int vol = $o.getVolumenMetros() != null ? $o.getVolumenMetros() : 3500;
+  int v = $o.getVariante();
+  int volPrincipal = (vol * 55) / 100;
+
+  int series;
+  int metros;
+  int descanso;
+  String desc;
+
+  if (v == 0) {
+    metros = 400;
+    series = Math.max(2, Math.min(5, volPrincipal / metros));
+    descanso = 30;
+    desc = "Series 400m al 75%. Ritmo aerobico sostenido y uniforme. Eficiencia, mas metros por brazada. Gestion del ritmo.";
+  } else if (v == 1) {
+    metros = 600;
+    series = Math.max(2, Math.min(4, volPrincipal / metros));
+    descanso = 45;
+    desc = "Series 600m al 75%. Distancia muy larga: control respiratorio, cadencia regular y mente concentrada.";
+  } else {
+    // Combinacion 200+200+200 progresiva
+    metros = 200;
+    series = Math.max(5, Math.min(10, volPrincipal / metros));
+    descanso = 20;
+    desc = "Series 200m al 75% progresivas: cada serie ligeramente mas viva que la anterior. Calentamiento aerobico extenso.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(5);
+  $b.setIntensidadAE("AE2");
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setDescripcion(desc);
+  $b.setMotivo("CAPACIDAD AEROBICA (AE2) · " + series + "x" + metros + "m / " + descanso + "s · variante " + v);
+end
+
+rule "Principal: UMBRAL_AEROBICO"
+  no-loop true
+when
+  $o : NatacionObjetivo(objetivo == "UMBRAL_AEROBICO")
+  $b : NatacionBloqueGenerado(tipo == "PRINCIPAL")
+then
+  int vol = $o.getVolumenMetros() != null ? $o.getVolumenMetros() : 3000;
+  int v = $o.getVariante();
+  int volPrincipal = (vol * 60) / 100;
+
+  int series;
+  int metros;
+  int descanso;
+  String desc;
+
+  if (v == 0) {
+    // Continuo
+    metros = volPrincipal;
+    metros = ((metros + 99) / 200) * 200;
+    series = 1;
+    descanso = 0;
+    desc = "Nado continuo al 65-70%. Control respiratorio, posicion del cuerpo y cadencia. Sin paradas: base aerobica pura.";
+  } else if (v == 1) {
+    // Series largas con pausa minima
+    metros = 800;
+    series = Math.max(1, Math.min(3, volPrincipal / metros));
+    descanso = 30;
+    desc = "Series 800m al 65-70%. Tramos largos con micropausas para corregir tecnica y reposicionar.";
+  } else {
+    // 4-5 series de 400 progresivas
+    metros = 400;
+    series = Math.max(3, Math.min(6, volPrincipal / metros));
+    descanso = 20;
+    desc = "Series 400m al 65-70% con progresion. Cada serie mantiene la base aerobica con tecnica relajada.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(5);
+  $b.setIntensidadAE("AE2");
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(descanso);
+  $b.setDescripcion(desc);
+  $b.setMotivo("UMBRAL AEROBICO (AE2) · " + series + "x" + metros + "m / " + descanso + "s · variante " + v);
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  BLOQUE 6 — VUELTA A LA CALMA
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Bloque: Vuelta a la calma"
+  no-loop true
+when
+  $o : NatacionObjetivo()
+  $b : NatacionBloqueGenerado(tipo == "VUELTA_CALMA")
+then
+  int vol = $o.getVolumenMetros() != null ? $o.getVolumenMetros() : 2000;
+  int v = $o.getVariante();
+  int r = $o.getRand();
+
+  // 8-12% del volumen total
+  int pct = 10 + (r % 5) - 2;
+  int metros = (vol * pct) / 100;
+  metros = ((metros + 24) / 50) * 50;
+  metros = Math.max(150, Math.min(400, metros));
+
+  int series;
+  String desc;
+  if (v == 0) {
+    series = 1;
+    desc = "Nado libre muy suave, estilos variados. Recuperacion activa. Respiracion lenta y consciente.";
+  } else if (v == 1) {
+    series = 2;
+    metros = metros / 2;
+    desc = "Vuelta a la calma en dos tramos: libre suelto + espalda muy suave. Soltura de hombros y caderas.";
+  } else {
+    series = 1;
+    desc = "Nado de recuperacion activa muy lento, con paradas en cada pared para movilizar y respirar profundo.";
+  }
+
+  $b.setActivo(true);
+  $b.setOrden(6);
+  $b.setIntensidadAE("AE1");
+  $b.setSeries(series);
+  $b.setMetrosPorSerie(metros);
+  $b.setDescansoSeg(0);
+  $b.setDescripcion(desc);
+  $b.setMotivo("Vuelta a la calma (AE1) · " + series + "x" + metros + "m · reduccion activa del lactato");
+end
+
+// ══════════════════════════════════════════════════════════════════════════
+//  AJUSTES POR NIVEL DEL NADADOR (post-aplicacion)
+// ══════════════════════════════════════════════════════════════════════════
+
+rule "Nivel INICIACION: bajar series y subir descanso"
+  salience -10
+  no-loop true
+when
+  $o : NatacionObjetivo( nivel == "INICIACION" )
+  $b : NatacionBloqueGenerado( activo == true, tipo not in ("CALENTAMIENTO", "VUELTA_CALMA") )
+then
+  $b.setSeries(Math.max(1, $b.getSeries() - 1));
+  $b.setDescansoSeg($b.getDescansoSeg() + 15);
+  $b.setMotivo($b.getMotivo() + " · [iniciacion -1 serie +15s]");
+end
+
+rule "Nivel AVANZADO: subir 1 serie y bajar descanso"
+  salience -10
+  no-loop true
+when
+  $o : NatacionObjetivo( nivel == "AVANZADO" )
+  $b : NatacionBloqueGenerado( activo == true,
+        tipo not in ("CALENTAMIENTO", "VUELTA_CALMA") )
+then
+  $b.setSeries($b.getSeries() + 1);
+  $b.setDescansoSeg(Math.max(10, $b.getDescansoSeg() - 5));
+  $b.setMotivo($b.getMotivo() + " · [avanzado +1 serie -5s]");
+end

@@ -43,8 +43,11 @@ public class SecurityConfig {
         .requestMatchers(new AntPathRequestMatcher("/api/planificaciones", HttpMethod.GET.name())).authenticated()
         .requestMatchers(new AntPathRequestMatcher("/api/planificaciones/**", HttpMethod.GET.name())).authenticated()
         .requestMatchers(new AntPathRequestMatcher("/api/planificaciones", HttpMethod.POST.name())).authenticated()
+        .requestMatchers(new AntPathRequestMatcher("/api/planificaciones/**", HttpMethod.POST.name())).authenticated()
         .requestMatchers(new AntPathRequestMatcher("/api/planificaciones/**", HttpMethod.PUT.name())).authenticated()
         .requestMatchers(new AntPathRequestMatcher("/api/planificaciones/**", HttpMethod.DELETE.name())).authenticated()
+        .requestMatchers(new AntPathRequestMatcher("/api/ejercicios/**")).authenticated()
+        .requestMatchers(new AntPathRequestMatcher("/api/sugerencias/**")).authenticated()
         .anyRequest().authenticated()
       );
 

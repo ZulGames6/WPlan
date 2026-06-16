@@ -29,4 +29,12 @@ public class AuthDtos {
   ) {}
 
   public record MeResponse(Long id, String email, String name) {}
+
+  public record UpdateProfileRequest(
+    @Size(max = 120)
+    String name,
+    String currentPassword,
+    @Size(min = 6, max = 72)
+    String newPassword
+  ) {}
 }

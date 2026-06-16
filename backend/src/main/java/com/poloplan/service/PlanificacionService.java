@@ -20,9 +20,14 @@ import com.poloplan.repository.PlanificacionRepository;
 public class PlanificacionService {
 
   private final PlanificacionRepository planificacionRepository;
+  private final PlanificacionResolver planificacionResolver;
 
-  public PlanificacionService(PlanificacionRepository planificacionRepository) {
+  public PlanificacionService(
+    PlanificacionRepository planificacionRepository,
+    PlanificacionResolver planificacionResolver
+  ) {
     this.planificacionRepository = planificacionRepository;
+    this.planificacionResolver = planificacionResolver;
   }
 
   @Transactional
@@ -42,15 +47,14 @@ public class PlanificacionService {
   }
 
   public List<PlanificacionResponse> listarPorUsuario(AppUser propietario) {
+    planificacionResolver.backfillNumerosFaltantes(propietario);
     return planificacionRepository.listByOwner(propietario.getId()).stream()
       .map(this::aRespuesta)
       .toList();
   }
 
   public PlanificacionResponse obtener(AppUser propietario, Long planNumero) {
-    Planificacion p = planificacionRepository.findByNumeroAndOwner(planNumero, propietario.getId())
-      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Planificación no encontrada"));
-    return aRespuesta(p);
+    return aRespuesta(planificacionResolver.require(propietario, planNumero));
   }
 
   @Transactional
@@ -75,8 +79,7 @@ public class PlanificacionService {
 
   @Transactional
   public void eliminar(AppUser propietario, Long planNumero) {
-    Planificacion p = planificacionRepository.findByNumeroAndOwner(planNumero, propietario.getId())
-      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Planificación no encontrada"));
+    Planificacion p = planificacionResolver.require(propietario, planNumero);
     planificacionRepository.deleteById(Objects.requireNonNull(p.getId()));
   }
 
